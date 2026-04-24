@@ -6,10 +6,12 @@
 4-6 边形), 并把可视化保存到 wheat/snapshots/.
 
 用法:
-  python3 -m wheat.detect <snapshot_path>                              从已存 PNG 读
+  python3 -m wheat.detect <snapshot_path>                              从已存 PNG 读 (默认棕色)
   python3 -m wheat.detect --live                                       实时截 BlueStacks
+  python3 -m wheat.detect <path> --color brown                         显式棕色 (空地)
+  python3 -m wheat.detect <path> --color gold                          金色 (成熟麦田)
   python3 -m wheat.detect <path> --hsv-lower 8,150,130 --hsv-upper 15,255,210
-                                                                       自定义 HSV 阈值
+                                                                       自定义 HSV 阈值 (优先级高于 --color)
   python3 -m wheat.detect <path> --min-area 1000 --min-extent 0.35 --poly-eps 0.01
 
 输出:
@@ -39,10 +41,21 @@ from src.window import capture, find_bluestacks  # noqa: E402
 PROJECT_ROOT = Path(__file__).parent.parent.resolve()
 SNAPSHOTS_DIR = PROJECT_ROOT / "wheat" / "snapshots"
 
-# HSV 默认阈值: 基于真实截图采样 (麦田像素簇在 H≈10-12, S≈200-210, V≈160-190),
-# 收紧后可把画面里其它偏橙区域 (木箱/道具/UI) 排除掉.
-DEFAULT_HSV_LOWER: tuple[int, int, int] = (8, 150, 130)
-DEFAULT_HSV_UPPER: tuple[int, int, int] = (15, 255, 210)
+# 颜色预设: HSV 阈值按真实截图像素采样 + 留 buffer 确定.
+# brown: 棕色空地 (未种的耕地). 像素簇 H≈10-12, S≈200-210, V≈160-190.
+# gold:  金色成熟麦田. 像素簇 H≈22-28, S≈183-255, V≈196-255 (阴影边缘 V 最低 196).
+# 形态学/面积/extent/poly_eps 所有颜色共用 (实测两种场景都不需要差异化调整).
+COLOR_PRESETS: dict[str, dict[str, tuple[int, int, int]]] = {
+    "brown": {
+        "hsv_lower": (8, 150, 130),
+        "hsv_upper": (15, 255, 210),
+    },
+    "gold": {
+        "hsv_lower": (18, 150, 180),
+        "hsv_upper": (32, 255, 255),
+    },
+}
+DEFAULT_COLOR = "brown"
 
 # 形态学: 椭圆核比矩形核更接近"圆盘"结构元, 不易沿轴产生毛刺.
 # open 3x3 杀散点 (UI 碎片), close 9x9 x2 把麦田内部的垄沟缝隙合并成一整片.
@@ -107,7 +120,7 @@ def _parse_pos_int(value: str) -> int:
     return n
 
 
-def detect_brown_region(
+def detect_color_region(
     image: np.ndarray,
     hsv_lower: tuple[int, int, int],
     hsv_upper: tuple[int, int, int],
@@ -276,18 +289,24 @@ def main() -> None:
         help="实时截取 BlueStacks 窗口 (与 snapshot_path 二选一)",
     )
     parser.add_argument(
+        "--color",
+        choices=sorted(COLOR_PRESETS.keys()),
+        default=DEFAULT_COLOR,
+        help=f"识别颜色预设 (决定 HSV 默认阈值), 默认 {DEFAULT_COLOR}",
+    )
+    parser.add_argument(
         "--hsv-lower",
         type=_parse_hsv,
-        default=DEFAULT_HSV_LOWER,
+        default=None,
         metavar="H,S,V",
-        help=f"HSV 下界, 默认 {','.join(map(str, DEFAULT_HSV_LOWER))}",
+        help="HSV 下界; 若提供则覆盖 --color 预设",
     )
     parser.add_argument(
         "--hsv-upper",
         type=_parse_hsv,
-        default=DEFAULT_HSV_UPPER,
+        default=None,
         metavar="H,S,V",
-        help=f"HSV 上界, 默认 {','.join(map(str, DEFAULT_HSV_UPPER))}",
+        help="HSV 上界; 若提供则覆盖 --color 预设",
     )
     parser.add_argument(
         "--min-area",
@@ -315,6 +334,11 @@ def main() -> None:
     if bool(args.snapshot_path) == bool(args.live):
         parser.error("必须且只能提供 snapshot_path 或 --live 中的一个")
 
+    # 优先级: 显式 --hsv-lower/--hsv-upper > --color 预设
+    preset = COLOR_PRESETS[args.color]
+    hsv_lower = args.hsv_lower if args.hsv_lower is not None else preset["hsv_lower"]
+    hsv_upper = args.hsv_upper if args.hsv_upper is not None else preset["hsv_upper"]
+
     if args.live:
         image = _load_live()
         out_path = _resolve_output_path("", is_live=True)
@@ -324,10 +348,10 @@ def main() -> None:
         out_path = _resolve_output_path(str(src_path), is_live=False)
 
     ih, iw = image.shape[:2]
-    mask, bbox, center, area, polygon = detect_brown_region(
+    mask, bbox, center, area, polygon = detect_color_region(
         image,
-        args.hsv_lower,
-        args.hsv_upper,
+        hsv_lower,
+        hsv_upper,
         min_area=args.min_area,
         min_extent=args.min_extent,
         poly_eps=args.poly_eps,
