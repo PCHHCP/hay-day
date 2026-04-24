@@ -30,7 +30,7 @@ from pathlib import Path
 
 import cv2
 
-sys.path.insert(0, str(Path(__file__).parent))
+sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from src import input as adb  # noqa: E402
 from src.vision import match_template  # noqa: E402
