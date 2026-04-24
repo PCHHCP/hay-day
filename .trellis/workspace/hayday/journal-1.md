@@ -199,3 +199,69 @@ Pushed to `origin/dev` (`9261156..c66d4fa`).
 ### Next Steps
 
 - None - task complete
+
+
+## Session 3: wheat: 金色成熟麦田识别 (共用管道 + --color 预设)
+
+**Date**: 2026-04-25
+**Task**: wheat: 金色成熟麦田识别 (共用管道 + --color 预设)
+**Branch**: `dev`
+
+### Summary
+
+(Add summary)
+
+### Main Changes
+
+### Summary
+扩展 `wheat/detect.py` 支持金色成熟麦田识别. 在真实截图上采样金色像素 HSV, 发现 HayDay 美术做得非常饱和 (H 22~28, S 183~255, V 243~255), 与担心的"稀疏纹理"相反, 纯 HSV 分割就够用. 抽出 `COLOR_PRESETS` 字典 + `--color brown|gold` CLI, 形态学/extent/poly_eps 全部共用零调整.
+
+### Key Changes
+
+| 项 | 结果 |
+|---|---|
+| 核心函数改名 | `detect_brown_region` → `detect_color_region` (签名不变) |
+| 颜色预设 | 模块级字典 `COLOR_PRESETS = {"brown": ..., "gold": ...}` |
+| CLI 新增 | `--color brown\|gold` 默认 brown, `--hsv-*` 优先级覆盖 preset |
+| brown 回归 | 文字 + 图像**字节级一致**, 与 v1 零差异 |
+| gold 命中 | area=467426, 8 顶点贴合金田 (含右下凸台), 未误抓向日葵/邮箱铃铛 |
+| 基准固化 | `wheat/snapshots/gold_field.png` + `gold_field_detected.png` 入库 |
+
+### Non-obvious Findings
+
+1. **成熟麦田在 HayDay 里是整片高饱和金**, 不是绿棕穿插的稀疏纹理 — 事前猜测"需要更大 close kernel"被证伪. 下次扩新作物仍建议先采样再拍参数.
+2. **`brown_field_detected.png` 重跑字节级一致** — approxPolyDP 在固定输入上完全确定性, 不用为"图像漂移"担心 (PRD 里的担心被数据否定).
+3. **向日葵 + 邮箱铃铛虽金黄但面积 < 1000 px**, 现有 `min_area=1000` 就过滤掉了, 不用单独处理.
+
+### Files Committed (9aac129)
+
+- `wheat/detect.py` (+COLOR_PRESETS, +--color CLI, 改名)
+- `wheat/snapshots/gold_field.png` (基准输入, 1432x840)
+- `wheat/snapshots/gold_field_detected.png` (基准输出)
+- `.trellis/tasks/04-25-wheat-detect-gold/` (PRD + task.json)
+
+Pushed to `origin/dev` (`1e649a0..9aac129`), 随后 archive 任务.
+
+### Next Tasks
+
+1. **`src/input.py` 加 `drag_path(points, image_size, duration_ms)`** - 基于 `adb shell input motionevent DOWN/MOVE/UP`, 解决"一次按住作物连续拖动路径"的底层能力 (swipe 会抬手掉作物)
+2. **完整循环** — 识别棕→判断全空→拖动种植→等待 2 分钟→识别金→收割→回到棕. 触发条件遵循 "全空/全熟" 约束 (面积 ≥ 基准阈值)
+
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `9aac129` | (see git log) |
+
+### Testing
+
+- [OK] (Add test results)
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- None - task complete

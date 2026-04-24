@@ -8,7 +8,7 @@
 
 <!-- @@@auto:current-status -->
 - **Active File**: `journal-1.md`
-- **Total Sessions**: 2
+- **Total Sessions**: 3
 - **Last Active**: 2026-04-25
 <!-- @@@/auto:current-status -->
 
@@ -19,7 +19,7 @@
 <!-- @@@auto:active-documents -->
 | File | Lines | Status |
 |------|-------|--------|
-| `journal-1.md` | ~201 | Active |
+| `journal-1.md` | ~267 | Active |
 <!-- @@@/auto:active-documents -->
 
 ---
@@ -29,6 +29,7 @@
 <!-- @@@auto:session-history -->
 | # | Date | Title | Commits | Branch |
 |---|------|-------|---------|--------|
+| 3 | 2026-04-25 | wheat: 金色成熟麦田识别 (共用管道 + --color 预设) | `9aac129` | `dev` |
 | 2 | 2026-04-25 | wheat v1 识别: 多场景回归 + 基准固化 + 归档 | `c66d4fa` | `dev` |
 | 1 | 2026-04-25 | wheat 模块 v1: 棕色空地识别（调参至稳定命中） | - | `dev` |
 <!-- @@@/auto:session-history -->
