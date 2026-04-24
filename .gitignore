@@ -1,0 +1,7 @@
+__pycache__/
+*.pyc
+*.pyo
+.venv/
+.DS_Store
+.trellis/.developer
+.trellis/.current-task
