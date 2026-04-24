@@ -17,14 +17,17 @@
   2) brew install android-platform-tools
 
 用法:
-  python3 autobuy.py                  持续扫描 (默认), Ctrl+C 退出
-  python3 autobuy.py --adb-port 5555  自定义 ADB 端口
-  python3 autobuy.py --cooldown 200   自定义命中冷却毫秒数
-  python3 autobuy.py --interval 50    自定义未命中轮询毫秒数
+  python3 -m autobuy.main                     持续扫描 (默认全选), Ctrl+C 退出
+  python3 -m autobuy.main --tools nail,bolt   仅扫描指定工具
+  python3 -m autobuy.main --adb-port 5555     自定义 ADB 端口
+  python3 -m autobuy.main --cooldown 200      自定义命中冷却毫秒数
+  python3 -m autobuy.main --interval 50       自定义未命中轮询毫秒数
 """
 
 import argparse
+import signal
 import sys
+import threading
 import time
 from pathlib import Path
 
@@ -117,17 +120,34 @@ def detect_best_tool(image, templates):
     return None
 
 
-def scan_loop(cooldown_ms, poll_interval_ms, adb_port):
-    newspaper_templates = _load_templates(NEWSPAPER_TOOLS)
-    shelf_templates = _load_templates(SHELF_TOOLS)
+def scan_loop(
+    tools,
+    stop_event,
+    on_hit=None,
+    on_error=None,
+    on_ready=None,
+    cooldown_ms=DEFAULT_COOLDOWN_MS,
+    poll_interval_ms=DEFAULT_POLL_INTERVAL_MS,
+    adb_port=5565,
+):
+    newspaper_names = tuple(tools)
+    shelf_names = tuple(f"{t}_shelf" for t in newspaper_names)
+    newspaper_templates = _load_templates(newspaper_names)
+    shelf_templates = _load_templates(shelf_names)
     if not newspaper_templates or not shelf_templates:
-        _log("ERR", "报纸或货架模板缺失, 先在 templates/ 下放好 .png")
+        msg = "报纸或货架模板缺失, 先在 templates/ 下放好 .png"
+        _log("ERR", msg)
+        if on_error is not None:
+            on_error(msg)
         return 1
 
     try:
         target, (aw, ah) = adb.init(port=adb_port)
     except RuntimeError as e:
-        _log("ERR", f"adb 初始化失败: {e}")
+        msg = f"adb 初始化失败: {e}"
+        _log("ERR", msg)
+        if on_error is not None:
+            on_error(msg)
         return 1
 
     cooldown_s = cooldown_ms / 1000.0
@@ -150,9 +170,15 @@ def scan_loop(cooldown_ms, poll_interval_ms, adb_port):
 
     win = find_bluestacks()
     if win is None:
-        _log("ERR", "未找到 BlueStacks 窗口, 确认已开且可见.")
+        msg = "未找到 BlueStacks 窗口, 确认已开且可见."
+        _log("ERR", msg)
+        if on_error is not None:
+            on_error(msg)
         return 1
     _log("OK", f"BlueStacks {win['w']}x{win['h']} @ ({win['x']},{win['y']})")
+
+    if on_ready is not None:
+        on_ready()
 
     hits = 0
     frames = 0
@@ -160,77 +186,108 @@ def scan_loop(cooldown_ms, poll_interval_ms, adb_port):
     state = STATE_NEWSPAPER
     shelf_entered_at = 0.0  # 进入 shelf 状态的时间, 用于超时回退
 
-    try:
-        while True:
-            frames += 1
-            # 每 30 帧刷新一次窗口位置, 支持用户拖动 BlueStacks
-            # (每帧都查 Quartz 全屏窗口列表太贵)
-            if frames % 30 == 0:
-                win = find_bluestacks() or win
+    while not stop_event.is_set():
+        frames += 1
+        # 每 30 帧刷新一次窗口位置, 支持用户拖动 BlueStacks
+        # (每帧都查 Quartz 全屏窗口列表太贵)
+        if frames % 30 == 0:
+            win = find_bluestacks() or win
 
-            # 货架状态固定驻留 SHELF_TIMEOUT_S, 到点就回报纸 (不论是否命中过).
-            # 货架支持多件购买, 所以这里不按"未命中"而是按"已进货架多久"判定.
-            if state == STATE_SHELF and (time.time() - shelf_entered_at) > SHELF_TIMEOUT_S:
-                _log("STATE", f"shelf 驻留 {SHELF_TIMEOUT_S}s 到期, 回到 newspaper")
-                state = STATE_NEWSPAPER
+        # 货架状态固定驻留 SHELF_TIMEOUT_S, 到点就回报纸 (不论是否命中过).
+        # 货架支持多件购买, 所以这里不按"未命中"而是按"已进货架多久"判定.
+        if state == STATE_SHELF and (time.time() - shelf_entered_at) > SHELF_TIMEOUT_S:
+            _log("STATE", f"shelf 驻留 {SHELF_TIMEOUT_S}s 到期, 回到 newspaper")
+            state = STATE_NEWSPAPER
 
-            templates = newspaper_templates if state == STATE_NEWSPAPER else shelf_templates
+        templates = newspaper_templates if state == STATE_NEWSPAPER else shelf_templates
 
-            t0 = time.perf_counter()
-            img = capture(win)
-            t_cap = time.perf_counter()
-            iw, ih = img.shape[1], img.shape[0]
+        t0 = time.perf_counter()
+        img = capture(win)
+        t_cap = time.perf_counter()
+        iw, ih = img.shape[1], img.shape[0]
 
-            if MATCH_DOWNSCALE != 1:
-                small = cv2.resize(
-                    img,
-                    (iw // MATCH_DOWNSCALE, ih // MATCH_DOWNSCALE),
-                    interpolation=cv2.INTER_AREA,
-                )
-            else:
-                small = img
-            hit = detect_best_tool(small, templates)
-            hit = _scale_hit_up(hit, MATCH_DOWNSCALE)
-            t_det = time.perf_counter()
+        if MATCH_DOWNSCALE != 1:
+            small = cv2.resize(
+                img,
+                (iw // MATCH_DOWNSCALE, ih // MATCH_DOWNSCALE),
+                interpolation=cv2.INTER_AREA,
+            )
+        else:
+            small = img
+        hit = detect_best_tool(small, templates)
+        hit = _scale_hit_up(hit, MATCH_DOWNSCALE)
+        t_det = time.perf_counter()
 
-            cap_ms = (t_cap - t0) * 1000
-            det_ms = (t_det - t_cap) * 1000
+        cap_ms = (t_cap - t0) * 1000
+        det_ms = (t_det - t_cap) * 1000
 
-            if hit is not None:
-                hits += 1
-                t_tap0 = time.perf_counter()
-                ax, ay = adb.tap(hit["x"], hit["y"], (iw, ih))
-                tap_ms = (time.perf_counter() - t_tap0) * 1000
-                _log(
-                    "TAP",
-                    f"[{state}] {hit['name']} score={hit['score']:.3f} scale={hit['scale']:.2f} "
-                    f"img=({hit['x']},{hit['y']}) android=({ax},{ay}) "
-                    f"cap={cap_ms:.0f}ms det={det_ms:.0f}ms tap={tap_ms:.0f}ms",
-                )
+        if hit is not None:
+            hits += 1
+            t_tap0 = time.perf_counter()
+            ax, ay = adb.tap(hit["x"], hit["y"], (iw, ih))
+            tap_ms = (time.perf_counter() - t_tap0) * 1000
+            _log(
+                "TAP",
+                f"[{state}] {hit['name']} score={hit['score']:.3f} scale={hit['scale']:.2f} "
+                f"img=({hit['x']},{hit['y']}) android=({ax},{ay}) "
+                f"cap={cap_ms:.0f}ms det={det_ms:.0f}ms tap={tap_ms:.0f}ms",
+            )
+            if on_hit is not None:
+                on_hit(hit["name"])
 
-                # newspaper 命中 → 进货架并开始 5s 倒计时.
-                # shelf 命中 → 保持 shelf, 继续扫剩余商品; 回报纸只靠超时.
-                if state == STATE_NEWSPAPER:
-                    state = STATE_SHELF
-                    shelf_entered_at = time.time()
+            # newspaper 命中 → 进货架并开始 5s 倒计时.
+            # shelf 命中 → 保持 shelf, 继续扫剩余商品; 回报纸只靠超时.
+            if state == STATE_NEWSPAPER:
+                state = STATE_SHELF
+                shelf_entered_at = time.time()
 
-                time.sleep(cooldown_s)
-                continue
+            # cooldown 期间也要尊重 stop_event, 切成小片
+            end = time.time() + cooldown_s
+            while not stop_event.is_set() and time.time() < end:
+                time.sleep(max(0.0, min(0.05, end - time.time())))
+            continue
 
-            now = time.time()
-            if now - last_status > 5.0:
-                _log("..", f"[{state}] 待命中 ({frames} 帧, {hits} 次命中)")
-                last_status = now
+        now = time.time()
+        if now - last_status > 5.0:
+            _log("..", f"[{state}] 待命中 ({frames} 帧, {hits} 次命中)")
+            last_status = now
 
-            time.sleep(poll_s)
-    except KeyboardInterrupt:
-        print()
-        _log("BYE", f"退出. 总计 {frames} 帧, {hits} 次命中.")
-        return 0
+        # poll 间隔期间也要尊重 stop_event
+        end = time.time() + poll_s
+        while not stop_event.is_set() and time.time() < end:
+            time.sleep(max(0.0, min(0.05, end - time.time())))
+
+    print()
+    _log("BYE", f"退出. 总计 {frames} 帧, {hits} 次命中.")
+    return 0
+
+
+def _parse_tools(value):
+    """Parse --tools value. 'all' or comma-separated subset of NEWSPAPER_TOOLS."""
+    if value == "all":
+        return list(NEWSPAPER_TOOLS)
+    names = [n.strip() for n in value.split(",") if n.strip()]
+    if not names:
+        raise argparse.ArgumentTypeError("--tools 不能为空")
+    unknown = [n for n in names if n not in NEWSPAPER_TOOLS]
+    if unknown:
+        raise argparse.ArgumentTypeError(
+            f"未知工具: {', '.join(unknown)}. 合法值: {', '.join(NEWSPAPER_TOOLS)}"
+        )
+    return names
 
 
 def main():
     p = argparse.ArgumentParser(description="HayDay 抢购自动化 (adb 点击)")
+    p.add_argument(
+        "--tools",
+        type=_parse_tools,
+        default="all",
+        help=(
+            "要扫描的工具子集, 'all' 或逗号分隔 (默认 all). "
+            f"合法名: {', '.join(NEWSPAPER_TOOLS)}"
+        ),
+    )
     p.add_argument(
         "--cooldown",
         type=int,
@@ -251,8 +308,20 @@ def main():
     )
     args = p.parse_args()
 
+    # _parse_tools 在 default="all" 时不会被 argparse 自动调用, 手动处理.
+    tools = args.tools if isinstance(args.tools, list) else _parse_tools(args.tools)
+
+    stop_event = threading.Event()
+
+    def _handle_sigint(signum, frame):
+        stop_event.set()
+
+    signal.signal(signal.SIGINT, _handle_sigint)
+
     sys.exit(
         scan_loop(
+            tools=tools,
+            stop_event=stop_event,
             cooldown_ms=args.cooldown,
             poll_interval_ms=args.interval,
             adb_port=args.adb_port,

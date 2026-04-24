@@ -41,10 +41,14 @@ hayday/
 
 ## 已确认的事实
 
-- **田地布局**：单块连续菱形（HayDay 2.5D 等距视角），有白色栅栏作为清晰边界
+- **田地布局**：单块倾斜矩形网格（HayDay 2.5D 等距视角，平行四边形），由许多小垄格拼成
 - **田地数量**：仅一片麦田
 - **视角**：跑脚本期间用户保证不拖动地图（视角固定，可缓存识别结果）
-- **网格尺寸**：随等级增长可变，**不能硬编码** —— 必须每次运行时动态识别菱形的四个角
+- **识别策略**：**HSV 颜色分割**（弃用栅栏/角桩模板匹配 —— 栅栏遍布整个农场，模板不唯一）
+  - 棕色空地像素在画面里独一份（周围绿地/红屋顶/白栅栏对比强烈）
+  - 成熟麦田是金黄色，也可靠地不同于画面其他元素
+- **网格尺寸**：随等级增长可变 —— 无需精确识别，mask 的 bounding box 会自动适配
+- **部分已种场景**：收割中途退出后重跑，画面里会有棕色+绿色混合 —— HSV 棕色 mask 恰好只命中未种区域
 - **种植/收割手势**：按住 + 拖动一气呵成；只要手指按住目标作物在田里拖动就能批量种/收
 - **棕色田地** = 已耕作待种植状态
 
@@ -52,22 +56,24 @@ hayday/
 
 ```
 1. 启动: adb 初始化, 找 BlueStacks 窗口
-2. 识别菱形 4 角桩 (4 张模板各匹配一次) → 推算菱形几何
-3. 点击菱形中心 → 弹出作物选择菜单
+2. HSV 棕色 mask → 最大连通区 → 拿到 "棕色空地" 的重心 + bbox
+3. 点击重心 → 弹出作物选择菜单
 4. 模板匹配「小麦图标」 → 点击之，进入"按住小麦"状态
-5. 沿菱形从上到下做 N 次平行 swipe 覆盖整片田 → 种植完成
+5. 在 bbox 内从上到下做 N 次水平 swipe（手指只会在棕色像素上划过，已种区域不受影响）→ 种植完成
 6. time.sleep(种植等待秒数) — 纯计时，从种完瞬间起算
-7. 点击菱形中心 → 弹出收割工具菜单
-8. 模板匹配「镰刀图标」 → 点击之
-9. 沿菱形从上到下做 N 次平行 swipe 覆盖整片田 → 收割完成
-10. 退出 (用户手动收尾「上架」)
+7. HSV 金色 mask → 最大连通区 → 拿到 "成熟麦田" 的重心 + bbox
+8. 点击重心 → 弹出收割工具菜单
+9. 模板匹配「镰刀图标」 → 点击之
+10. 在 bbox 内从上到下做 N 次水平 swipe → 收割完成
+11. 退出 (用户手动收尾「上架」)
 ```
 
 ## 决策记录 (来自 brainstorm)
 
 | 决策点 | 选择 | 备注 |
 |---|---|---|
-| 田地识别 | 4 个角桩各做模板匹配 (vision.match_template) | 复用 src/vision.py，零新增依赖 |
+| 田地识别 | **HSV 颜色分割 + 最大连通区 + bbox** | 弃用栅栏角桩模板（栅栏遍布农场，模板不唯一） |
+| 田地几何输出 | `(center_xy, bbox_xywh)` 两个值 | 不推算菱形 4 角，bbox 足以规划 swipe 路径 |
 | 拖动手势 | 多次单行 `adb input swipe`（直线两点） | 简单可靠，预计 2 秒种完整片 |
 | 等待策略 | 纯计时 `time.sleep(N)`，从种植完成瞬间起算 | 不做视觉确认 |
 | 终止 | 单次执行后退出，无循环 | 仓库容量限制，循环等卖出模块完成 |
@@ -106,10 +112,12 @@ hayday/
 - [ ] 删除根目录残留的 `__pycache__/`
 - [ ] 烟雾测试：`python3 autobuy/main.py --help` 输出正常；空跑（不连 BlueStacks 也行）能成功加载所有模板
 
-### Phase 1：capture_template.py 改造 + wheat 骨架
-- [ ] 给 `capture_template.py` 加 `--module {autobuy,wheat}` 参数，控制 snapshot/template 写入位置
-- [ ] 创建 `wheat/__init__.py`、`wheat/templates/`、`wheat/snapshots/`（空目录占位用 `.gitkeep`）
-- [ ] 用户用改造后的工具抓出 6 张模板（4 角桩 + 小麦 + 镰刀），确认每张模板自匹配置信度 ≥ 0.95
+### Phase 1：capture_template.py 改造 + wheat 骨架 + HSV 调参
+- [x] 给 `capture_template.py` 加 `--module {autobuy,wheat}` 参数，控制 snapshot/template 写入位置
+- [x] 创建 `wheat/__init__.py`、`wheat/templates/`、`wheat/snapshots/`（空目录占位用 `.gitkeep`）
+- [ ] 用户抓 2 张模板（`wheat_icon.png` + `sickle_icon.png`），自匹配置信度 ≥ 0.95
+- [ ] 写 `wheat/tune_hsv.py`：拖滑杆实时预览掩膜，在真实截图上调出 **棕色空地** 和 **金色成熟麦** 两组 HSV 阈值
+- [ ] 确认的阈值写入 `wheat/field_detect.py` 作为模块常量
 
 ### Phase 2：底层能力扩展
 - [ ] `src/input.py` 新增 `swipe(x1, y1, x2, y2, image_size, duration_ms=300)` 函数（不修改 `tap()` 签名）
@@ -117,9 +125,10 @@ hayday/
 - [ ] 单元测试：手动调一次 swipe，BlueStacks 中能看到拖动轨迹
 
 ### Phase 3：wheat 主流程
+- [ ] `wheat/field_detect.py`：`detect_unplanted(img)` / `detect_ripe(img)`，各返回 `(center_xy, bbox_xywh, mask)`；掩膜经过面积过滤 + 最大连通区
 - [ ] `wheat/main.py` 实现端到端流程（识别 → 种 → 等 → 收 → 退出）
-- [ ] 4 角桩识别成功后打印菱形几何（中心点 + 4 角坐标）便于调试
-- [ ] 种植阶段：N 次平行 swipe 完成，过程有日志
+- [ ] 田地识别成功后打印 bbox + center 便于调试，并把掩膜 overlay 保存到 `wheat/snapshots/_mask_<stage>.png`
+- [ ] 种植阶段：在 bbox 内 N 次水平 swipe 完成，过程有日志
 - [ ] 等待阶段：显示倒计时（每 10 秒打一次日志）
 - [ ] 收割阶段：与种植对称
 - [ ] 任意阶段失败：打印错误位置 + 当时截图保存到 `wheat/snapshots/error_<timestamp>.png` + 退出非零
@@ -155,9 +164,7 @@ hayday/
 
 | 名称 | 用途 | 备注 |
 |---|---|---|
-| `corner_top.png` | 菱形上角桩 | 栅栏顶端立柱 |
-| `corner_bottom.png` | 菱形下角桩 | 栅栏底端立柱 |
-| `corner_left.png` | 菱形左角桩 | 栅栏左端立柱 |
-| `corner_right.png` | 菱形右角桩 | 栅栏右端立柱 |
 | `wheat_icon.png` | 作物菜单中的小麦图标 | 点田地后弹出的圆形菜单里 |
 | `sickle_icon.png` | 收割工具菜单中的镰刀 | 点成熟田地后弹出的菜单里 |
+
+**田地本身不需要模板** —— 靠 `wheat/tune_hsv.py` 调出的 HSV 阈值识别（棕色空地 + 金色成熟麦）。

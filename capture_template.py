@@ -47,10 +47,23 @@ from src.window import capture, find_bluestacks  # noqa: E402
 
 
 PROJECT_ROOT = Path(__file__).parent.resolve()
-SNAPSHOTS_DIR = PROJECT_ROOT / "snapshots"
-TEMPLATES_DIR = PROJECT_ROOT / "templates"
-SNAPSHOTS_DIR.mkdir(exist_ok=True)
-TEMPLATES_DIR.mkdir(exist_ok=True)
+VALID_MODULES = ("autobuy", "wheat")
+
+# 运行时由 main() 根据 --module 初始化
+SNAPSHOTS_DIR: Path = PROJECT_ROOT / "autobuy" / "snapshots"
+TEMPLATES_DIR: Path = PROJECT_ROOT / "autobuy" / "templates"
+
+
+def set_module(module: str) -> None:
+    """根据 --module 设定 snapshot/template 输出根目录。"""
+    global SNAPSHOTS_DIR, TEMPLATES_DIR
+    if module not in VALID_MODULES:
+        print(f"错误: --module 必须是 {VALID_MODULES} 之一", file=sys.stderr)
+        sys.exit(2)
+    SNAPSHOTS_DIR = PROJECT_ROOT / module / "snapshots"
+    TEMPLATES_DIR = PROJECT_ROOT / module / "templates"
+    SNAPSHOTS_DIR.mkdir(parents=True, exist_ok=True)
+    TEMPLATES_DIR.mkdir(parents=True, exist_ok=True)
 
 
 def capture_bluestacks():
@@ -348,6 +361,12 @@ def main():
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="详细使用示例见文件顶部 docstring。",
     )
+    parser.add_argument(
+        "--module",
+        choices=VALID_MODULES,
+        default="autobuy",
+        help="选择输出模块子目录 (默认: autobuy)。snapshot/template 写入 <module>/snapshots/ 与 <module>/templates/",
+    )
     sub = parser.add_subparsers(dest="cmd")
 
     sub.add_parser("info", help="显示 BlueStacks 窗口信息")
@@ -371,6 +390,7 @@ def main():
     sub.add_parser("list", help="列出快照和模板")
 
     args = parser.parse_args()
+    set_module(args.module)
     if args.cmd == "info":
         cmd_info()
     elif args.cmd == "snapshot":

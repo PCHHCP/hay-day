@@ -139,3 +139,46 @@ def tap(img_x, img_y, image_size):
         except Exception as e2:
             print(f"[WARN] adb tap 重试失败: {e2}", flush=True)
     return ax, ay
+
+
+def swipe(img_x1, img_y1, img_x2, img_y2, image_size, duration_ms=300):
+    """经 adb input swipe 做按住-拖动. 像素坐标按比例换算到 Android 屏幕坐标.
+
+    用途: HayDay 种植/收割手势需要按住作物图标后拖过田地,
+    input swipe 会模拟 ACTION_DOWN → MOVE → UP, 是触发拖动批量种/收的标准方式.
+
+    参数:
+      img_x1, img_y1  : 起点 (图像像素坐标)
+      img_x2, img_y2  : 终点 (图像像素坐标)
+      image_size      : (iw, ih) 截图像素尺寸 (与 tap 一致)
+      duration_ms     : 滑动时长毫秒. HayDay 需要 "按住" 语义,
+                        太短 (<150ms) Android 会判为 fling/tap, 不触发拖动.
+
+    返回 ((ax1, ay1), (ax2, ay2)) Android 屏幕坐标起止点.
+    """
+    if _TARGET is None or _SCREEN is None:
+        raise RuntimeError("adb 未初始化, 先调用 init()")
+    iw, ih = image_size
+    aw, ah = _SCREEN
+    if (iw > ih) != (aw > ah):
+        aw, ah = ah, aw
+    ax1 = int(round(img_x1 * aw / iw))
+    ay1 = int(round(img_y1 * ah / ih))
+    ax2 = int(round(img_x2 * aw / iw))
+    ay2 = int(round(img_y2 * ah / ih))
+
+    cmd = f"input swipe {ax1} {ay1} {ax2} {ay2} {int(duration_ms)}\n".encode()
+    if _SHELL is None or _SHELL.poll() is not None:
+        _open_shell()
+    try:
+        _SHELL.stdin.write(cmd)
+        _SHELL.stdin.flush()
+    except (BrokenPipeError, OSError) as e:
+        print(f"[WARN] adb shell 管道断开, 重连: {e}", flush=True)
+        _open_shell()
+        try:
+            _SHELL.stdin.write(cmd)
+            _SHELL.stdin.flush()
+        except Exception as e2:
+            print(f"[WARN] adb swipe 重试失败: {e2}", flush=True)
+    return (ax1, ay1), (ax2, ay2)
