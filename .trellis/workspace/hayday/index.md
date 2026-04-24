@@ -8,7 +8,7 @@
 
 <!-- @@@auto:current-status -->
 - **Active File**: `journal-1.md`
-- **Total Sessions**: 1
+- **Total Sessions**: 2
 - **Last Active**: 2026-04-25
 <!-- @@@/auto:current-status -->
 
@@ -19,7 +19,7 @@
 <!-- @@@auto:active-documents -->
 | File | Lines | Status |
 |------|-------|--------|
-| `journal-1.md` | ~123 | Active |
+| `journal-1.md` | ~201 | Active |
 <!-- @@@/auto:active-documents -->
 
 ---
@@ -29,6 +29,7 @@
 <!-- @@@auto:session-history -->
 | # | Date | Title | Commits | Branch |
 |---|------|-------|---------|--------|
+| 2 | 2026-04-25 | wheat v1 识别: 多场景回归 + 基准固化 + 归档 | `c66d4fa` | `dev` |
 | 1 | 2026-04-25 | wheat 模块 v1: 棕色空地识别（调参至稳定命中） | - | `dev` |
 <!-- @@@/auto:session-history -->
 

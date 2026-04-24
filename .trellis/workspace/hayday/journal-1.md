@@ -121,3 +121,81 @@ polygon (6 corners): [(293,360), (552,488), (734,396), (770,407), (804,393), (51
 ### Next Steps
 
 - None - task complete
+
+
+## Session 2: wheat v1 识别: 多场景回归 + 基准固化 + 归档
+
+**Date**: 2026-04-25
+**Task**: wheat v1 识别: 多场景回归 + 基准固化 + 归档
+**Branch**: `dev`
+
+### Summary
+
+(Add summary)
+
+### Main Changes
+
+### Summary
+继续上次 session, 实时跑 `python3 -m wheat.detect --live` 验证多场景鲁棒性. 最终在纯棕空地 / 缩放 / 棕绿混合 三种状态下确认行为符合预期, 替换回归基准图后固化提交并 archive 任务.
+
+### Key Decisions / Changes
+
+| 项 | 结果 |
+|---|---|
+| 纯棕空地 (live) | 6 顶点贴合, center 在田内, 命中精确 |
+| 缩放后 (live) | 用户本地验证通过, 无需参数调整 |
+| 棕绿混合 (已种一半) | 只框中间残留棕色, **按约束预期不触发**, 非 bug |
+| 回归基准 | 旧 `brown_field.png` 丢失, 用户手动截了一张精选纯棕 (988x584), 替换为新基准, 跑出 area=227188 / 6-corner polygon 完美贴合 |
+| 产物策略 | `.gitignore` 加 `wheat/snapshots/live_*.png`, 只入库 `brown_field.png` + `brown_field_detected.png` 作回归参考 |
+| `wheat/templates/` | 添加 `.gitkeep` 占位 (下一阶段模板匹配用) |
+
+### Architectural Decision: 不做 outline + plantable 双层
+
+用户明确: 棕绿混合时识别不到整块 **不是 bug**. 下一步种植策略 = **只在全空田触发** (面积 ≥ 全棕基准的阈值). 理由: 保持识别单一职责 (纯棕 HSV), 种植逻辑不用处理 "哪些格子能点" 的子问题. 已固化到 project memory.
+
+### Constraints Captured (memory)
+
+- **麦田连片连接**: 所有田块合为单一 blob, 识别只取最大连通区, 不做多 blob 处理
+- **种植触发=全空**: 棕绿混合态 = "还不能种"信号, 而非覆盖失败
+
+### Files Committed (c66d4fa)
+
+- `wheat/__init__.py`
+- `wheat/detect.py` (290 行, 核心不变)
+- `wheat/snapshots/brown_field.png` (新基准, 988x584)
+- `wheat/snapshots/brown_field_detected.png` (期望输出)
+- `wheat/templates/.gitkeep`
+- `.gitignore` (+1 规则)
+- `.trellis/tasks/04-24-hayday-wheat-loop/` (PRD 重写 + jsonl)
+- `.trellis/workspace/hayday/` (index + journal-1)
+
+Pushed to `origin/dev` (`9261156..c66d4fa`).
+
+### Excluded
+
+- `autobuy/菜单栏运行脚本` (49 字节备忘, 属 menubar 任务, 故意不 stage)
+
+### Next Tasks (suggested)
+
+1. **金色成熟麦田识别** — 复用 `detect.py` 架构, 换 HSV 区间 (实测金色像素), 同套形态学 + extent 过滤
+2. **`src/input.py` 加 `drag_path(points, image_size, duration_ms)`** — 基于 `adb shell input motionevent DOWN/MOVE/UP`, 一次按住连续路径, 解决 "每次 swipe 都掉作物" 问题
+3. **完整循环** — 识别棕→点中心→选小麦→拖路径种植→等待→识别金→收割, 触发条件遵循 "全空地才种" 约束
+
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `c66d4fa` | (see git log) |
+
+### Testing
+
+- [OK] (Add test results)
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- None - task complete
