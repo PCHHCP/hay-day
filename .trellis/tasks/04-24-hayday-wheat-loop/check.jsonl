@@ -1,0 +1,5 @@
+{"file": ".claude/commands/trellis/finish-work.md", "reason": "Finish work checklist"}
+{"file": ".claude/commands/trellis/check.md", "reason": "Code quality check spec"}
+{"file": "src/window.py", "reason": "Verify no duplication of screenshot logic"}
+{"file": "autobuy/main.py", "reason": "Entry pattern parity check"}
+{"file": ".trellis/spec/guides/code-reuse-thinking-guide.md", "reason": "Check reuse before re-writing any helper"}

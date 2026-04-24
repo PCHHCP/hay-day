@@ -5,3 +5,7 @@ __pycache__/
 .DS_Store
 .trellis/.developer
 .trellis/.current-task
+
+# wheat 实时截屏产物 (保留 brown_field.png 作为回归基准, 其它忽略)
+wheat/snapshots/live_*.png
+

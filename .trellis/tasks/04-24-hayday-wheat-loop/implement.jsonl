@@ -1,0 +1,6 @@
+{"file": ".trellis/workflow.md", "reason": "Project workflow and conventions"}
+{"file": ".trellis/spec/backend/index.md", "reason": "Backend development guide"}
+{"file": ".trellis/spec/guides/code-reuse-thinking-guide.md", "reason": "Reuse src/window.py APIs; don't duplicate screenshot logic"}
+{"file": "src/window.py", "reason": "Reusable APIs: find_bluestacks() and capture() for --live mode"}
+{"file": "autobuy/main.py", "reason": "Entry pattern reference: sys.path bootstrap, argparse style, module-level main()"}
+{"file": "capture_template.py", "reason": "Live-capture pattern reference (capture_bluestacks), VALID_MODULES includes 'wheat'"}
